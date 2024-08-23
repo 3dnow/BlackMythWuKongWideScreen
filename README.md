@@ -9,7 +9,8 @@ This project provides a widescreen patch for [BlackMythWuKong], allowing players
 - Uses memory patching to modify the game process, eliminating the need for file modifications.
 - No impact on normal game operation.
 - Automatically launches and adjusts the game to widescreen mode.
-
+- Precisely locates the data that needs to be modified for widescreen, requiring only a single memory modification.
+- 
 ## How to Use
 
 1. Run the program directly. It will launch the game and attempt to adjust it to widescreen mode.

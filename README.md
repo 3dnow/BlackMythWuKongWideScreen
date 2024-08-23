@@ -2,7 +2,7 @@
 
 ## Overview
 
-This project provides a widescreen patch for [BlackMythWuKong], allowing players to enjoy the game in a 21:9 aspect ratio. The original idea for this patch comes from the Bilibili content creator [conglin3](https://space.bilibili.com/543249142)
+This project provides a widescreen patch for [BlackMythWuKong], allowing players to enjoy the game in a 32:9 aspect ratio. The original idea for this patch comes from the Bilibili content creator [conglin3](https://space.bilibili.com/543249142)
 
 ## Features
 

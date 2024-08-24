@@ -1,4 +1,4 @@
-﻿
+﻿#include <memory>
 #include <iostream>
 #include <string>
 
@@ -13,21 +13,24 @@
 #pragma comment(lib, "shlwapi.lib")
 #pragma comment(lib, "advapi32.lib")
 
+using namespace std;
+
+typedef std::unique_ptr<std::remove_pointer<HANDLE>::type, decltype(&::CloseHandle)> unique_handle;
+typedef std::unique_ptr<std::remove_pointer<HKEY>::type, decltype(&::RegCloseKey)> unique_hkey;
+typedef std::unique_ptr<std::remove_pointer<HMODULE>::type, decltype(&::FreeLibrary)> unique_lib;
+
 std::wstring GetProcessPath(DWORD processId)
 {
-    HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, processId);
-    if (hProcess == NULL)
+    auto hProcess = unique_handle(::OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, processId), ::CloseHandle);
+    if (hProcess.get() == NULL)
         return L"";
 
     WCHAR path[MAX_PATH];
     DWORD size = MAX_PATH;
-    if (QueryFullProcessImageNameW(hProcess, 0, path, &size))
+    if (::QueryFullProcessImageName(hProcess.get(), 0, path, &size))
     {
-        CloseHandle(hProcess);
         return std::wstring(path);
     }
-
-    CloseHandle(hProcess);
     return L"";
 }
 
@@ -36,28 +39,21 @@ DWORD GetProcessIdByName(const std::wstring &processName)
     PROCESSENTRY32 entry;
     entry.dwSize = sizeof(PROCESSENTRY32);
 
-    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-
-    if (Process32First(snapshot, &entry))
+    auto hSnapshot = unique_handle(::CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0), ::CloseHandle);
+    if (::Process32First(hSnapshot.get(), &entry))
     {
         do
         {
-            if (entry.th32ParentProcessID != GetCurrentProcessId() &&
+            if (entry.th32ParentProcessID != ::GetCurrentProcessId() &&
                 processName == entry.szExeFile &&
                 entry.cntThreads != 0)
             {
-                CloseHandle(snapshot);
-
                 return entry.th32ProcessID;
             }
-        } while (Process32Next(snapshot, &entry));
+        } while (Process32Next(hSnapshot.get(), &entry));
     }
-
-    CloseHandle(snapshot);
     return 0;
 }
-
-PROCESS_INFORMATION pi;
 
 #define SEARCH_CHUNK_SIZE 4096
 
@@ -72,7 +68,6 @@ BOOL SearchAndModifyRemoteData(HANDLE hProcess, DWORD_PTR moduleBase, const char
     if (!ReadProcessMemory(hProcess, (LPCVOID)moduleBase, &dosHeader, sizeof(dosHeader), NULL))
     {
         printf("Failed to read DOS header. Error %u \n", GetLastError());
-
         return FALSE;
     }
 
@@ -164,126 +159,94 @@ BOOL SearchAndModifyRemoteData(HANDLE hProcess, DWORD_PTR moduleBase, const char
     free(buffer);
     return FALSE;
 }
+
 int main()
 {
-    DWORD dwret;
-    HKEY hkey;
-    WCHAR FinalPath[MAX_PATH];
-    WCHAR InstallPath[MAX_PATH];
-    ULONG dwcb = sizeof(InstallPath);
-    BOOL bFoundPath = FALSE;
+    WCHAR szFinalPath[MAX_PATH];
+    WCHAR dwInstallPath[MAX_PATH];
+    BOOL bFoundPath(FALSE);
 
-    printf("BlackMythWuKong WideScreen Modifier v0.1\nby MJ0011\n");
-
-    dwret = RegOpenKey(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Steam App 2358720", &hkey);
-
-    if (dwret != ERROR_SUCCESS)
-    {
-        printf("Can not locate BlackMythWuKong...You can just start the game manually\n");
-        goto waitgame;
-    }
-
-    bFoundPath = TRUE;
-
-    DWORD RegType;
-
-    dwret = RegQueryValueEx(hkey, L"InstallLocation", 0, &RegType, (LPBYTE)InstallPath, &dwcb);
-
-    if (dwret != ERROR_SUCCESS)
-    {
-        printf("Query InstallLocation failed %u\n", dwret);
-        RegCloseKey(hkey);
-        return 0;
-    }
-
-    RegCloseKey(hkey);
-
-    PathCombine(FinalPath, InstallPath, L"b1\\Binaries\\Win64\\b1-Win64-Shipping.exe");
-
-    if (PathFileExists(FinalPath) == FALSE)
-    {
-        printf("Can not find BlackMythWuKong file...Make sure you have installed it\n");
-        return 0;
-    }
-
-    STARTUPINFO si;
-
-    memset(&si, 0, sizeof(si));
+    PROCESS_INFORMATION pi{0};
+    STARTUPINFO si{0};
     si.cb = sizeof(si);
 
-    memset(&pi, 0, sizeof(pi));
+    cout << "BlackMythWuKong WideScreen Modifier v0.1" << endl
+         << "by MJ0011" << endl;
 
-    printf("Starting BlackMythWuKong...\n");
-
-    if (CreateProcess(FinalPath, NULL, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi) == FALSE)
+    auto hkey = unique_hkey(NULL, ::RegCloseKey);
+    HKEY rawHKey;
+    if (::RegOpenKey(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Steam App 2358720", &rawHKey) != ERROR_SUCCESS)
     {
-        printf("Can not start BlackMythWuKong, failed %u\n", GetLastError());
+        cout << "Can not locate BlackMythWuKong...You can just start the game manually." << endl;
+        goto LOCATE_GAME_PROCESS;
+    }
+    hkey.reset(rawHKey);
+    bFoundPath = TRUE;
 
+    DWORD dwRegType;
+    ULONG cbData(sizeof(dwInstallPath));
+    if (::RegQueryValueEx(hkey.get(), L"InstallLocation", 0, &dwRegType, (LPBYTE)dwInstallPath, &cbData) != ERROR_SUCCESS)
+    {
+        cout << "Query InstallLocation failed. Error code: " << ::GetLastError() << endl;
         return 0;
     }
-waitgame:
 
-    std::wstring targetProcessName = L"b1-Win64-Shipping.exe";
-    DWORD processId = 0;
-    HANDLE hProcess = NULL;
-    HMODULE hlib;
-
-    while (true)
+    ::PathCombine(szFinalPath, dwInstallPath, L"b1\\Binaries\\Win64\\b1-Win64-Shipping.exe");
+    if (::PathFileExists(szFinalPath) == FALSE)
     {
-        processId = GetProcessIdByName(targetProcessName);
-
-        if (processId != 0)
-        {
-            std::wcout << L"Process found! Process ID: " << processId << std::endl;
-
-            hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, processId);
-            if (hProcess != NULL)
-            {
-
-                if (bFoundPath)
-                {
-                    // No ASLR in current version but we still locate it for futher versions
-
-                    hlib = LoadLibraryEx(FinalPath, 0, DONT_RESOLVE_DLL_REFERENCES);
-
-                    FreeLibrary(hlib);
-                }
-                else
-                {
-                    hlib = LoadLibraryEx(GetProcessPath(processId).c_str(), 0, DONT_RESOLVE_DLL_REFERENCES);
-
-                    FreeLibrary(hlib);
-                }
-
-                std::wcout << L"Process handle opened successfully." << std::endl;
-                // 要搜索的模式（4个字节）
-                BYTE searchPattern[] = {0x8e, 0xe3, 0x18, 0x40};
-                // 要写入的新数据（4个字节）
-                BYTE newData[] = {0x39, 0x8e, 0x63, 0x40};
-
-                // 在 .sdata 段中搜索并修改数据
-                if (SearchAndModifyRemoteData(hProcess, (DWORD_PTR)hlib, ".sdata", searchPattern, sizeof(searchPattern), newData, sizeof(newData)))
-                {
-                    printf("Data in .sdata section has been modified.\n");
-                }
-                else
-                {
-                    printf("Failed to modify to widescreen, exit\n");
-                    return 0;
-                }
-
-                break; // 找到并打开进程后退出循环
-            }
-            else
-            {
-                std::wcout << L"Failed to open process handle. Error code: " << GetLastError() << std::endl;
-            }
-        }
-
-        Sleep(1000); // 每秒检查一次
+        cout << "Can not find BlackMythWuKong file...Make sure you have installed it." << endl;
+        return 0;
     }
 
-    printf("\nSuccessfully changed it to widescreen, WuKong will start in seconds...\n");
+    cout << "Starting BlackMythWuKong..." << endl;
+    if (::CreateProcess(szFinalPath, NULL, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi) == FALSE)
+    {
+        cout << "Can not start BlackMythWuKong. Error code: " << ::GetLastError() << endl;
+        return 0;
+    }
 
+LOCATE_GAME_PROCESS:
+    while (true)
+    {
+        auto processId(GetProcessIdByName(L"b1-Win64-Shipping.exe"));
+        if (processId == 0)
+        {
+            ::Sleep(1000);
+            continue;
+        }
+
+        cout << "Process found! Process ID: " << processId << endl;
+        auto hProcess = unique_handle(::OpenProcess(PROCESS_ALL_ACCESS, FALSE, processId), ::CloseHandle);
+        if (hProcess.get() == NULL)
+        {
+            cout << "Failed to open process handle. Error code: " << ::GetLastError() << endl;
+        }
+        HMODULE hlib(NULL);
+        if (bFoundPath)
+        {
+            // No ASLR in current version but we still locate it for futher versions
+            hlib = unique_lib(::LoadLibraryEx(szFinalPath, 0, DONT_RESOLVE_DLL_REFERENCES), ::FreeLibrary).get();
+        }
+        else
+        {
+            hlib = unique_lib(::LoadLibraryEx(GetProcessPath(processId).c_str(), 0, DONT_RESOLVE_DLL_REFERENCES), ::FreeLibrary).get();
+        }
+
+        cout << "Process handle opened successfully." << endl;
+        // 要搜索的模式（4个字节）
+        BYTE searchPattern[] = {0x8e, 0xe3, 0x18, 0x40};
+        // 要写入的新数据（4个字节）
+        BYTE newData[] = {0x39, 0x8e, 0x63, 0x40};
+
+        // 在 .sdata 段中搜索并修改数据
+        if (!SearchAndModifyRemoteData(hProcess.get(), (DWORD_PTR)hlib, ".sdata", searchPattern, sizeof(searchPattern), newData, sizeof(newData)))
+        {
+            cout << "Failed to modify to widescreen, exit..." << endl;
+            return 0;
+        }
+        cout << "Data in .sdata section has been modified." << endl;
+        break; // 找到并打开进程后退出循环
+    }
+    cout << "Successfully changed it to widescreen, WuKong will start in seconds..." << endl;
     return 0;
 }

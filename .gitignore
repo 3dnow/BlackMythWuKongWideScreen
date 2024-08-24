@@ -1,0 +1,44 @@
+# Compiled Object files
+*.sbr
+*.obj
+*.pch
+*.pdb
+
+# Compiled Dynamic Libraries
+*.dll
+*.lib
+
+# Compiled Static Libraries
+*.a
+*.lib
+
+# Compiled Executables
+*.exe
+
+# Visual Studio files
+.vs/
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+
+# CMake files
+CMakeFiles/
+CMakeCache.txt
+CMakeScripts/
+CMakeLists.txt.user
+
+# Debug files
+Debug/
+Release/
+*.dSYM/
+
+# IDE-specific files
+.idea/
+*.userprefs
+*.suo
+*.sln.docstates
+*.sdf
+*.opensdf
+*.VC.db
+*.VC.VC.opendb

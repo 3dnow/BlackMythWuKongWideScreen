@@ -242,13 +242,19 @@ int main()
 
 
                  //在 .sdata 段中搜索并修改数据
-                if (SearchAndModifyRemoteData(hProcess, (DWORD_PTR)hlib, ".sdata", searchPattern, sizeof(searchPattern), newData, sizeof(newData))) {
-                    printf("Data in .sdata section has been modified.\n");
+                if (SearchAndModifyRemoteData(hProcess, (DWORD_PTR)hlib, ".rdata", searchPattern, sizeof(searchPattern), newData, sizeof(newData))) {
+                    printf("Data in .rdata section has been modified.\n");
                 }
                 else
                 {
-                    printf("Failed to modify to widescreen, exit\n");
-                    return 0;
+                    if (SearchAndModifyRemoteData(hProcess, (DWORD_PTR)hlib, ".sdata", searchPattern, sizeof(searchPattern), newData, sizeof(newData))) {
+                        printf("Data in .sdata section has been modified.\n");
+                    }
+                    else
+                    {
+                        printf("Failed to modify to widescreen, exit\n");
+                        return 0;
+                    }
                 }
 
 

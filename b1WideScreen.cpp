@@ -1,4 +1,4 @@
-﻿
+
 #include <iostream>
 #include "windows.h"
 #include "shlwapi.h"
@@ -241,21 +241,31 @@ int main()
                 BYTE newData[] = { 0x39, 0x8e, 0x63, 0x40 };
 
 
-                 //在 .sdata 段中搜索并修改数据
-                if (SearchAndModifyRemoteData(hProcess, (DWORD_PTR)hlib, ".rdata", searchPattern, sizeof(searchPattern), newData, sizeof(newData))) {
-                    printf("Data in .rdata section has been modified.\n");
-                }
-                else
+                while (true)
                 {
-                    if (SearchAndModifyRemoteData(hProcess, (DWORD_PTR)hlib, ".sdata", searchPattern, sizeof(searchPattern), newData, sizeof(newData))) {
+                    //在 .sdata 段中搜索并修改数据
+
+                    if (SearchAndModifyRemoteData(hProcess, (DWORD_PTR)hlib, ".shared", searchPattern, sizeof(searchPattern), newData, sizeof(newData))) { //version 1.0.9
+                        printf("Data in .shared section has been modified.\n");
+                        break;
+                    }
+
+                    if (SearchAndModifyRemoteData(hProcess, (DWORD_PTR)hlib, ".rdata", searchPattern, sizeof(searchPattern), newData, sizeof(newData))) { //version 1.0.8
+                        printf("Data in .rdata section has been modified.\n");
+                        break; 
+                    }
+
+                    if (SearchAndModifyRemoteData(hProcess, (DWORD_PTR)hlib, ".sdata", searchPattern, sizeof(searchPattern), newData, sizeof(newData))) { //versions before 1.0.8
                         printf("Data in .sdata section has been modified.\n");
+                        break; 
                     }
-                    else
-                    {
-                        printf("Failed to modify to widescreen, exit\n");
-                        return 0;
-                    }
+
+
+                    printf("Failed to modify to widescreen, exit\n");
+                    return 0;
+
                 }
+
 
 
 

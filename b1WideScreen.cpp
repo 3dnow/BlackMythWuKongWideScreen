@@ -1,4 +1,4 @@
-
+﻿
 #include <iostream>
 #include "windows.h"
 #include "shlwapi.h"
@@ -245,6 +245,10 @@ int main()
                 {
                     //在 .sdata 段中搜索并修改数据
 
+                    if (SearchAndModifyRemoteData(hProcess, (DWORD_PTR)hlib, ".rsrc", searchPattern, sizeof(searchPattern), newData, sizeof(newData))) { //version 1.0.13
+                        printf("Data in .rsrc section has been modified.\n");
+                        break;
+                    }
                     if (SearchAndModifyRemoteData(hProcess, (DWORD_PTR)hlib, ".shared", searchPattern, sizeof(searchPattern), newData, sizeof(newData))) { //version 1.0.9
                         printf("Data in .shared section has been modified.\n");
                         break;
@@ -259,6 +263,8 @@ int main()
                         printf("Data in .sdata section has been modified.\n");
                         break; 
                     }
+
+
 
 
                     printf("Failed to modify to widescreen, exit\n");

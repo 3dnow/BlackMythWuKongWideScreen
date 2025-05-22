@@ -6,6 +6,88 @@
 #pragma  comment(lib ,"shlwapi.lib")
 #include <string>
 
+#include <psapi.h>
+
+// Windows内部结构定义
+typedef struct _UNICODE_STRING {
+    USHORT Length;
+    USHORT MaximumLength;
+    PWSTR  Buffer;
+} UNICODE_STRING, * PUNICODE_STRING;
+
+typedef struct _PEB_LDR_DATA {
+    ULONG Length;
+    BOOLEAN Initialized;
+    HANDLE SsHandle;
+    LIST_ENTRY InLoadOrderModuleList;
+    LIST_ENTRY InMemoryOrderModuleList;
+    LIST_ENTRY InInitializationOrderModuleList;
+    PVOID EntryInProgress;
+} PEB_LDR_DATA, * PPEB_LDR_DATA;
+
+typedef struct _LDR_DATA_TABLE_ENTRY {
+    LIST_ENTRY InLoadOrderLinks;
+    LIST_ENTRY InMemoryOrderLinks;
+    LIST_ENTRY InInitializationOrderLinks;
+    PVOID DllBase;
+    PVOID EntryPoint;
+    ULONG SizeOfImage;
+    UNICODE_STRING FullDllName;
+    UNICODE_STRING BaseDllName;
+} LDR_DATA_TABLE_ENTRY, * PLDR_DATA_TABLE_ENTRY;
+
+#ifdef _WIN64
+typedef struct _PEB {
+    BYTE Reserved1[2];
+    BYTE BeingDebugged;
+    BYTE Reserved2[21];
+    PPEB_LDR_DATA Ldr;
+} PEB, * PPEB;
+#else
+typedef struct _PEB {
+    BYTE Reserved1[2];
+    BYTE BeingDebugged;
+    BYTE Reserved2[1];
+    PVOID Reserved3[2];
+    PPEB_LDR_DATA Ldr;
+} PEB, * PPEB;
+#endif
+
+typedef struct _PROCESS_BASIC_INFORMATION {
+    PVOID Reserved1;
+    PPEB PebBaseAddress;
+    PVOID Reserved2[2];
+    ULONG_PTR UniqueProcessId;
+    PVOID Reserved3;
+} PROCESS_BASIC_INFORMATION, * PPROCESS_BASIC_INFORMATION;
+
+// 定义NtQueryInformationProcess函数的类型
+typedef NTSTATUS(NTAPI* pNtQueryInformationProcess)(
+    HANDLE ProcessHandle,
+    ULONG ProcessInformationClass,
+    PVOID ProcessInformation,
+    ULONG ProcessInformationLength,
+    PULONG ReturnLength
+    );
+
+// 安全地读取进程内存
+BOOL SafeReadProcessMemory(HANDLE hProcess, LPCVOID lpBaseAddress, LPVOID lpBuffer, SIZE_T nSize, SIZE_T* lpNumberOfBytesRead) {
+    MEMORY_BASIC_INFORMATION mbi;
+    if (VirtualQueryEx(hProcess, lpBaseAddress, &mbi, sizeof(mbi)) == 0) {
+        return FALSE;
+    }
+
+    if ((mbi.Protect & (PAGE_READONLY | PAGE_READWRITE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY)) == 0 ||
+        mbi.State != MEM_COMMIT) {
+        return FALSE;
+    }
+
+    return ReadProcessMemory(hProcess, lpBaseAddress, lpBuffer, nSize, lpNumberOfBytesRead);
+}
+
+
+
+
 std::wstring GetProcessPath(DWORD processId) {
     HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, processId);
     if (hProcess == NULL) return L"";
@@ -46,6 +128,129 @@ DWORD GetProcessIdByName(const std::wstring& processName) {
     return 0;
 }
 
+
+// 手动遍历PEB模块列表
+BOOL FindModuleInPEB(HANDLE hProcess, PPEB pebAddress, const wchar_t* targetDllName, PLDR_DATA_TABLE_ENTRY* ppFoundEntry) {
+    // 读取PEB
+    PEB peb;
+    SIZE_T bytesRead;
+
+    if (!SafeReadProcessMemory(hProcess, pebAddress, &peb, sizeof(PEB), &bytesRead)) {
+        return FALSE;
+    }
+
+    // 读取PEB_LDR_DATA
+    PEB_LDR_DATA ldrData;
+    if (!SafeReadProcessMemory(hProcess, peb.Ldr, &ldrData, sizeof(PEB_LDR_DATA), &bytesRead)) {
+        return FALSE;
+    }
+
+    // 计算第一个条目的地址
+    PLIST_ENTRY currentLink = ldrData.InInitializationOrderModuleList.Flink;
+    PLIST_ENTRY firstLink = &(peb.Ldr->InInitializationOrderModuleList);
+
+    // 遍历模块列表
+    while (currentLink != firstLink) {
+        // 计算当前LDR_DATA_TABLE_ENTRY的地址
+        PLDR_DATA_TABLE_ENTRY entry = CONTAINING_RECORD(currentLink, LDR_DATA_TABLE_ENTRY, InInitializationOrderLinks);
+
+        // 读取整个条目
+        LDR_DATA_TABLE_ENTRY currentEntry;
+        if (!SafeReadProcessMemory(hProcess, entry, &currentEntry, sizeof(LDR_DATA_TABLE_ENTRY), &bytesRead)) {
+            // 尝试只读取下一个链接地址
+            LIST_ENTRY linkEntry;
+            if (!SafeReadProcessMemory(hProcess, currentLink, &linkEntry, sizeof(LIST_ENTRY), &bytesRead)) {
+                return FALSE;
+            }
+
+            currentLink = linkEntry.Flink;
+            continue;
+        }
+
+        // 读取DLL名称
+        if (currentEntry.BaseDllName.Length > 0 && currentEntry.BaseDllName.Buffer != NULL) {
+            WCHAR dllName[MAX_PATH] = { 0 };
+            SIZE_T nameLength = min(currentEntry.BaseDllName.Length, (MAX_PATH - 1) * sizeof(WCHAR));
+
+            if (SafeReadProcessMemory(hProcess, currentEntry.BaseDllName.Buffer, dllName, nameLength, &bytesRead)) {
+                // 确保字符串以null结尾
+                dllName[nameLength / sizeof(WCHAR)] = L'\0';
+
+                // 检查是否是我们要找的DLL
+                if (_wcsicmp(dllName, targetDllName) == 0) {
+                    printf("Found: %ls, Base=%p, Entry=%p\n", dllName, currentEntry.DllBase, currentEntry.EntryPoint);
+                    *ppFoundEntry = entry;
+                    return TRUE;
+                }
+            }
+        }
+
+        // 移动到下一个条目
+        currentLink = currentEntry.InInitializationOrderLinks.Flink;
+    }
+
+    return FALSE;
+}
+
+int RemoveSteamClient(DWORD processId)
+{
+    HANDLE hProcess = OpenProcess(
+        PROCESS_QUERY_INFORMATION |
+        PROCESS_VM_READ |
+        PROCESS_VM_WRITE |
+        PROCESS_VM_OPERATION,
+        FALSE, processId);
+
+    if (hProcess == NULL) {
+        printf("Can't open process: %u\n", GetLastError());
+        return 1;
+    }
+
+    // 获取NtQueryInformationProcess函数
+    HMODULE hNtdll = GetModuleHandleW(L"ntdll.dll");
+    pNtQueryInformationProcess NtQueryInformationProcess = (pNtQueryInformationProcess)GetProcAddress(hNtdll, "NtQueryInformationProcess");
+
+    if (!NtQueryInformationProcess) {
+        printf("No NtQueryInformationProcess??\n");
+        CloseHandle(hProcess);
+        return 1;
+    }
+
+    // 获取进程的PEB地址
+    PROCESS_BASIC_INFORMATION pbi;
+    ULONG returnLength;
+
+    NTSTATUS status = NtQueryInformationProcess(hProcess, 0, &pbi, sizeof(pbi), &returnLength);
+    if (status != 0) {
+        printf("NtQueryInformationProcess failed, status: %lx\n", status);
+        CloseHandle(hProcess);
+        return 1;
+    }
+
+    // 查找steamclient64.dll
+    PLDR_DATA_TABLE_ENTRY foundEntry = NULL;
+    if (FindModuleInPEB(hProcess, pbi.PebBaseAddress, L"steamclient64.dll", &foundEntry)) {
+        // 计算EntryPoint的地址
+        SIZE_T entryPointOffset = FIELD_OFFSET(LDR_DATA_TABLE_ENTRY, EntryPoint);
+        PVOID entryPointAddress = (BYTE*)foundEntry + entryPointOffset;
+
+        // 将EntryPoint清零
+        PVOID nullPtr = NULL;
+        if (WriteProcessMemory(hProcess, entryPointAddress, &nullPtr, sizeof(PVOID), NULL)) {
+            printf("Removed Entry of steamclient64.dll!\n");
+        }
+        else {
+            printf("Write Memory failed: %u\n", GetLastError());
+        }
+    }
+    else {
+        printf("Module steamclient64.dll not found\n");
+    }
+
+    CloseHandle(hProcess);
+    return 0;
+
+}
 
 PROCESS_INFORMATION pi;
 
@@ -244,7 +449,10 @@ int main()
                 while (true)
                 {
                     //在 .sdata 段中搜索并修改数据
-
+                    if (SearchAndModifyRemoteData(hProcess, (DWORD_PTR)hlib, ".xcode", searchPattern, sizeof(searchPattern), newData, sizeof(newData))) { //version 1.0.16
+                        printf("Data in .xcode section has been modified.\n");
+                        break;
+                    }
                     if (SearchAndModifyRemoteData(hProcess, (DWORD_PTR)hlib, ".tls$", searchPattern, sizeof(searchPattern), newData, sizeof(newData))) { //version 1.0.14
                         printf("Data in .tls$ section has been modified.\n");
                         break;
@@ -291,6 +499,12 @@ int main()
 
     printf("\nSuccessfully changed it to widescreen, WuKong will start in seconds...\n");
 
+    if (processId != 0)
+    {
+        Sleep(3000);
+        RemoveSteamClient(processId);
+
+    }
 	return 0;
 
 

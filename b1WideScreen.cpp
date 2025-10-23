@@ -449,6 +449,10 @@ int main()
                 while (true)
                 {
                     //在 .sdata 段中搜索并修改数据
+                    if (SearchAndModifyRemoteData(hProcess, (DWORD_PTR)hlib, ".xdata", searchPattern, sizeof(searchPattern), newData, sizeof(newData))) { //version 1.0.20
+                        printf("Data in .xdata section has been modified.\n");
+                        break;
+                    }
                     if (SearchAndModifyRemoteData(hProcess, (DWORD_PTR)hlib, ".xcode", searchPattern, sizeof(searchPattern), newData, sizeof(newData))) { //version 1.0.16
                         printf("Data in .xcode section has been modified.\n");
                         break;

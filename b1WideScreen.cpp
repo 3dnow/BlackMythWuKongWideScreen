@@ -1,4 +1,4 @@
-
+﻿
 #include <iostream>
 #include "windows.h"
 #include "shlwapi.h"
@@ -115,10 +115,10 @@ DWORD GetProcessIdByName(const std::wstring& processName) {
         do {
             if (entry.th32ParentProcessID != GetCurrentProcessId() &&
                 processName == entry.szExeFile &&
-                entry.cntThreads != 0 ) 
+                entry.cntThreads != 0)
             {
                 CloseHandle(snapshot);
-                
+
                 return entry.th32ProcessID;
             }
         } while (Process32Next(snapshot, &entry));
@@ -257,11 +257,11 @@ PROCESS_INFORMATION pi;
 #define SEARCH_CHUNK_SIZE 4096
 
 BOOL SearchAndModifyRemoteData(HANDLE hProcess, DWORD_PTR moduleBase, const char* sectionName,
-    const BYTE * searchPattern, DWORD patternSize,
-    const BYTE * newData, DWORD newDataSize) {
+    const BYTE* searchPattern, DWORD patternSize,
+    const BYTE* newData, DWORD newDataSize) {
     IMAGE_DOS_HEADER dosHeader;
     IMAGE_NT_HEADERS ntHeaders;
-   
+
 
     // 读取 DOS 头
     if (!ReadProcessMemory(hProcess, (LPCVOID)moduleBase, &dosHeader, sizeof(dosHeader), NULL)) {
@@ -330,7 +330,7 @@ BOOL SearchAndModifyRemoteData(HANDLE hProcess, DWORD_PTR moduleBase, const char
                 }
                 // 修改数据
                 if (!WriteProcessMemory(hProcess, (LPVOID)matchAddress, newData, newDataSize, NULL)) {
-                    printf("Failed to write new data.Error %u\n" , GetLastError());
+                    printf("Failed to write new data.Error %u\n", GetLastError());
                     free(buffer);
                     return FALSE;
                 }
@@ -348,68 +348,68 @@ BOOL SearchAndModifyRemoteData(HANDLE hProcess, DWORD_PTR moduleBase, const char
 }
 int main()
 {
-	DWORD dwret; 
-	HKEY hkey; 
-	WCHAR FinalPath[MAX_PATH];
-	WCHAR InstallPath[MAX_PATH];
+    DWORD dwret;
+    HKEY hkey;
+    WCHAR FinalPath[MAX_PATH];
+    WCHAR InstallPath[MAX_PATH];
     ULONG dwcb = sizeof(InstallPath);
-    BOOL bFoundPath = FALSE; 
+    BOOL bFoundPath = FALSE;
 
     printf("BlackMythWuKong WideScreen Modifier v0.1\nby MJ0011\n");
 
 
 
-	dwret = RegOpenKey(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Steam App 2358720", &hkey);
+    dwret = RegOpenKey(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Steam App 2358720", &hkey);
 
-	if (dwret != ERROR_SUCCESS)
-	{
-		printf("Can not locate BlackMythWuKong...You can just start the game manually\n");
+    if (dwret != ERROR_SUCCESS)
+    {
+        printf("Can not locate BlackMythWuKong...You can just start the game manually\n");
         goto waitgame;
-	}
+    }
 
-    bFoundPath = TRUE; 
+    bFoundPath = TRUE;
 
-  	DWORD RegType;
+    DWORD RegType;
 
-	dwret = RegQueryValueEx(hkey, L"InstallLocation", 0, &RegType, (LPBYTE) InstallPath, &dwcb);
+    dwret = RegQueryValueEx(hkey, L"InstallLocation", 0, &RegType, (LPBYTE)InstallPath, &dwcb);
 
-	if (dwret != ERROR_SUCCESS)
-	{
-		printf("Query InstallLocation failed %u\n", dwret);
-		RegCloseKey(hkey);
-		return 0; 
-	}
+    if (dwret != ERROR_SUCCESS)
+    {
+        printf("Query InstallLocation failed %u\n", dwret);
+        RegCloseKey(hkey);
+        return 0;
+    }
 
-	RegCloseKey(hkey);
+    RegCloseKey(hkey);
 
-	PathCombine(FinalPath, InstallPath, L"b1\\Binaries\\Win64\\b1-Win64-Shipping.exe");
+    PathCombine(FinalPath, InstallPath, L"b1\\Binaries\\Win64\\b1-Win64-Shipping.exe");
 
-	if (PathFileExists(FinalPath) == FALSE)
-	{
-		printf("Can not find BlackMythWuKong file...Make sure you have installed it\n");
-		return 0;
-	}
+    if (PathFileExists(FinalPath) == FALSE)
+    {
+        printf("Can not find BlackMythWuKong file...Make sure you have installed it\n");
+        return 0;
+    }
 
-	STARTUPINFO si; 
+    STARTUPINFO si;
 
-	memset(&si, 0, sizeof(si));
-	si.cb = sizeof(si);
+    memset(&si, 0, sizeof(si));
+    si.cb = sizeof(si);
 
-	memset(&pi, 0, sizeof(pi));
+    memset(&pi, 0, sizeof(pi));
 
-	printf("Starting BlackMythWuKong...\n");
-
-
-	if (CreateProcess(FinalPath, NULL, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi) == FALSE)
-	{
-		printf("Can not start BlackMythWuKong, failed %u\n", GetLastError());
-
-		return 0; 
-	}
-  waitgame:
+    printf("Starting BlackMythWuKong...\n");
 
 
-    std::wstring targetProcessName = L"b1-Win64-Shipping.exe"; 
+    if (CreateProcess(FinalPath, NULL, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi) == FALSE)
+    {
+        printf("Can not start BlackMythWuKong, failed %u\n", GetLastError());
+
+        return 0;
+    }
+waitgame:
+
+
+    std::wstring targetProcessName = L"b1-Win64-Shipping.exe";
     DWORD processId = 0;
     HANDLE hProcess = NULL;
     HMODULE hlib;
@@ -438,7 +438,7 @@ int main()
                     FreeLibrary(hlib);
                 }
 
-                
+
                 std::wcout << L"Process handle opened successfully." << std::endl;
                 // 要搜索的模式（4个字节）
                 BYTE searchPattern[] = { 0x8e, 0xe3, 0x18, 0x40 };
@@ -449,6 +449,10 @@ int main()
                 while (true)
                 {
                     //在 .sdata 段中搜索并修改数据
+                    if (SearchAndModifyRemoteData(hProcess, (DWORD_PTR)hlib, ".xpdata", searchPattern, sizeof(searchPattern), newData, sizeof(newData))) { //version 1.0.21
+                        printf("Data in .xpdata section has been modified.\n");
+                        break;
+                    }
                     if (SearchAndModifyRemoteData(hProcess, (DWORD_PTR)hlib, ".xdata", searchPattern, sizeof(searchPattern), newData, sizeof(newData))) { //version 1.0.20
                         printf("Data in .xdata section has been modified.\n");
                         break;
@@ -472,12 +476,12 @@ int main()
 
                     if (SearchAndModifyRemoteData(hProcess, (DWORD_PTR)hlib, ".rdata", searchPattern, sizeof(searchPattern), newData, sizeof(newData))) { //version 1.0.8
                         printf("Data in .rdata section has been modified.\n");
-                        break; 
+                        break;
                     }
 
                     if (SearchAndModifyRemoteData(hProcess, (DWORD_PTR)hlib, ".sdata", searchPattern, sizeof(searchPattern), newData, sizeof(newData))) { //versions before 1.0.8
                         printf("Data in .sdata section has been modified.\n");
-                        break; 
+                        break;
                     }
 
 
@@ -509,7 +513,7 @@ int main()
         RemoveSteamClient(processId);
 
     }
-	return 0;
+    return 0;
 
 
 }
